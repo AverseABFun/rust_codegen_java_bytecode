@@ -29,23 +29,26 @@ extern crate rustc_driver;
 rustc_fluent_macro::fluent_messages! { "../messages.ftl" }
 
 use std::any::Any;
+use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::fmt::Debug;
 
 use rustc_codegen_ssa::back::lto::{LtoModuleCodegen, SerializedModule, ThinModule};
-use rustc_codegen_ssa::back::write::{CodegenContext, FatLtoInput, ModuleConfig};
+use rustc_codegen_ssa::back::write::{CodegenContext, FatLtoInput, ModuleConfig, OngoingCodegen};
 use rustc_codegen_ssa::base::codegen_crate;
-use rustc_codegen_ssa::traits::{CodegenBackend, ExtraBackendMethods, WriteBackendMethods};
+use rustc_codegen_ssa::traits::{
+    CodegenBackend, ExtraBackendMethods, ModuleBufferMethods, ThinBufferMethods,
+    WriteBackendMethods,
+};
 use rustc_codegen_ssa::{CodegenResults, CompiledModule, ModuleCodegen};
 use rustc_data_structures::fx::FxIndexMap;
+use rustc_data_structures::sync::IntoDynSyncSend;
 use rustc_errors::{DiagCtxtHandle, FatalError};
 use rustc_metadata::EncodedMetadata;
 use rustc_middle::dep_graph::{WorkProduct, WorkProductId};
 use rustc_middle::ty::TyCtxt;
 use rustc_session::Session;
-use rustc_session::config::OutputFilenames;
-use rustc_data_structures::sync::IntoDynSyncSend;
+use rustc_session::config::{OutputFilenames, OutputType};
 
 use rustc_hir::def_id::LOCAL_CRATE;
 
@@ -75,11 +78,12 @@ struct CodegenData {}
 
 #[derive(Debug)]
 pub struct TargetInfo {
-    target_cpu: String
+    pub target_cpu: String,
 }
 
 #[derive(Clone)]
-pub struct LockedTargetInfo { // this and impls for it were copied from rustc_codegen_gcc
+pub struct LockedTargetInfo {
+    // this and impls for it were copied from rustc_codegen_gcc
     info: Arc<Mutex<IntoDynSyncSend<TargetInfo>>>,
 }
 
@@ -91,8 +95,8 @@ impl Debug for LockedTargetInfo {
 
 #[derive(Clone)]
 struct JavaBytecodeBackend {
-    target_info: LockedTargetInfo
-};
+    target_info: Option<LockedTargetInfo>,
+}
 
 impl CodegenBackend for JavaBytecodeBackend {
     fn locale_resource(&self) -> &'static str {
@@ -109,10 +113,18 @@ impl CodegenBackend for JavaBytecodeBackend {
 
         let target_cpu = target_cpu(tcx.sess).to_string();
 
+        let mut backend = self.clone();
+
+        backend.target_info = Some(LockedTargetInfo {
+            info: Arc::new(Mutex::new(IntoDynSyncSend(TargetInfo {
+                target_cpu: target_cpu.clone(),
+            }))),
+        });
+
         Box::new(codegen_crate(
-            self,
+            backend,
             tcx,
-            target_cpu.to_string(),
+            target_cpu,
             metadata,
             need_metadata_module,
         ))
@@ -122,89 +134,94 @@ impl CodegenBackend for JavaBytecodeBackend {
         &self,
         ongoing_codegen: Box<dyn Any>,
         _sess: &Session,
-        _outputs: &OutputFilenames,
+        outputs: &OutputFilenames,
     ) -> (CodegenResults, FxIndexMap<WorkProductId, WorkProduct>) {
-        let codegen_results = ongoing_codegen
-            .downcast::<CodegenResults>()
-            .expect("in join_codegen: ongoing_codegen is not a CodegenResults");
-        (*codegen_results, FxIndexMap::default())
+        let ongoing_codegen: Box<OngoingCodegen<Self>> = ongoing_codegen.downcast().unwrap();
+        for (output_type, filename) in outputs.outputs.iter() {
+            match *output_type {
+                OutputType::
+            }
+        }
     }
 
     fn link(&self, sess: &Session, codegen_results: CodegenResults, outputs: &OutputFilenames) {
-        use std::io::Write;
-
-        use rustc_session::config::{CrateType, OutFileName};
-        use rustc_session::output::out_filename;
-
-        let crate_name = codegen_results.crate_info.local_crate_name;
-        for &crate_type in sess.opts.crate_types.iter() {
-            if crate_type != CrateType::Rlib {
-                sess.dcx().fatal(format!("Crate type is {:?}", crate_type));
-            }
-            let output_name = out_filename(sess, crate_type, &outputs, crate_name);
-            match output_name {
-                OutFileName::Real(ref path) => {
-                    let mut out_file = ::std::fs::File::create(path).unwrap();
-                    writeln!(out_file, "This has been 'compiled' successfully.").unwrap();
-                }
-                OutFileName::Stdout => {
-                    let mut stdout = std::io::stdout();
-                    writeln!(stdout, "This has been 'compiled' successfully.").unwrap();
-                }
-            }
-        }
+        unimplemented!();
     }
 }
 
 impl ExtraBackendMethods for JavaBytecodeBackend {
     fn codegen_allocator<'tcx>(
         &self,
-        tcx: TyCtxt<'tcx>,
-        module_name: &str,
-        kind: rustc_ast::expand::allocator::AllocatorKind,
-        alloc_error_handler_kind: rustc_ast::expand::allocator::AllocatorKind,
+        _tcx: TyCtxt<'tcx>,
+        _module_name: &str,
+        _kind: rustc_ast::expand::allocator::AllocatorKind,
+        _alloc_error_handler_kind: rustc_ast::expand::allocator::AllocatorKind,
     ) -> Self::Module {
-        CodegenData {}
+        unimplemented!();
     }
 
     fn compile_codegen_unit(
         &self,
-        tcx: TyCtxt<'_>,
-        cgu_name: rustc_span::Symbol,
+        _tcx: TyCtxt<'_>,
+        _cgu_name: rustc_span::Symbol,
     ) -> (rustc_codegen_ssa::ModuleCodegen<Self::Module>, u64) {
         unimplemented!()
     }
 
     fn target_machine_factory(
         &self,
-        sess: &Session,
-        opt_level: rustc_session::config::OptLevel,
-        target_features: &[String],
+        _sess: &Session,
+        _opt_level: rustc_session::config::OptLevel,
+        _target_features: &[String],
     ) -> rustc_codegen_ssa::back::write::TargetMachineFactoryFn<Self> {
         unimplemented!()
     }
 }
 
+struct ModuleBuffer {
+    data: Vec<u8>,
+}
+
+impl ModuleBufferMethods for ModuleBuffer {
+    fn data(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+struct ThinBuffer {
+    data: Vec<u8>,
+    thin_link_data: Vec<u8>,
+}
+
+impl ThinBufferMethods for ThinBuffer {
+    fn data(&self) -> &[u8] {
+        &self.data
+    }
+    fn thin_link_data(&self) -> &[u8] {
+        &self.thin_link_data
+    }
+}
+
 impl WriteBackendMethods for JavaBytecodeBackend {
     type Module = CodegenData;
-    type TargetMachine = ();
+    type TargetMachine = TargetInfo;
     type TargetMachineError = ();
-    type ModuleBuffer = ();
+    type ModuleBuffer = ModuleBuffer;
     type ThinData = ();
-    type ThinBuffer = ();
+    type ThinBuffer = ThinBuffer;
 
     fn run_fat_lto(
-        cgcx: &CodegenContext<Self>,
-        modules: Vec<FatLtoInput<Self>>,
-        cached_modules: Vec<(SerializedModule<Self::ModuleBuffer>, WorkProduct)>,
+        _cgcx: &CodegenContext<Self>,
+        _modules: Vec<FatLtoInput<Self>>,
+        _cached_modules: Vec<(SerializedModule<Self::ModuleBuffer>, WorkProduct)>,
     ) -> Result<LtoModuleCodegen<Self>, FatalError> {
         unimplemented!();
     }
 
     fn run_thin_lto(
-        cgcx: &CodegenContext<Self>,
-        modules: Vec<(String, Self::ThinBuffer)>,
-        cached_modules: Vec<(SerializedModule<Self::ModuleBuffer>, WorkProduct)>,
+        _cgcx: &CodegenContext<Self>,
+        _modules: Vec<(String, Self::ThinBuffer)>,
+        _cached_modules: Vec<(SerializedModule<Self::ModuleBuffer>, WorkProduct)>,
     ) -> Result<(Vec<LtoModuleCodegen<Self>>, Vec<WorkProduct>), FatalError> {
         unimplemented!();
     }
@@ -220,8 +237,8 @@ impl WriteBackendMethods for JavaBytecodeBackend {
     unsafe fn optimize(
         _cgcx: &CodegenContext<Self>,
         _dcx: DiagCtxtHandle<'_>,
-        module: &ModuleCodegen<Self::Module>,
-        config: &ModuleConfig,
+        _module: &ModuleCodegen<Self::Module>,
+        _config: &ModuleConfig,
     ) -> Result<(), FatalError> {
         unimplemented!();
     }
@@ -234,24 +251,24 @@ impl WriteBackendMethods for JavaBytecodeBackend {
     }
 
     unsafe fn optimize_thin(
-        cgcx: &CodegenContext<Self>,
-        thin: ThinModule<Self>,
+        _cgcx: &CodegenContext<Self>,
+        _thin: ThinModule<Self>,
     ) -> Result<ModuleCodegen<Self::Module>, FatalError> {
         unimplemented!();
     }
 
     unsafe fn codegen(
-        cgcx: &CodegenContext<Self>,
-        dcx: DiagCtxtHandle<'_>,
-        module: ModuleCodegen<Self::Module>,
-        config: &ModuleConfig,
+        _cgcx: &CodegenContext<Self>,
+        _dcx: DiagCtxtHandle<'_>,
+        _module: ModuleCodegen<Self::Module>,
+        _config: &ModuleConfig,
     ) -> Result<CompiledModule, FatalError> {
         unimplemented!();
     }
 
     fn prepare_thin(
-        module: ModuleCodegen<Self::Module>,
-        emit_summary: bool,
+        _module: ModuleCodegen<Self::Module>,
+        _emit_summary: bool,
     ) -> (String, Self::ThinBuffer) {
         unimplemented!();
     }
@@ -261,18 +278,18 @@ impl WriteBackendMethods for JavaBytecodeBackend {
     }
 
     fn run_link(
-        cgcx: &CodegenContext<Self>,
-        dcx: DiagCtxtHandle<'_>,
-        modules: Vec<ModuleCodegen<Self::Module>>,
+        _cgcx: &CodegenContext<Self>,
+        _dcx: DiagCtxtHandle<'_>,
+        _modules: Vec<ModuleCodegen<Self::Module>>,
     ) -> Result<ModuleCodegen<Self::Module>, FatalError> {
         unimplemented!();
     }
     fn autodiff(
-        cgcx: &CodegenContext<Self>,
-        tcx: TyCtxt<'_>,
-        module: &ModuleCodegen<Self::Module>,
-        diff_fncs: Vec<rustc_ast::expand::autodiff_attrs::AutoDiffItem>,
-        config: &ModuleConfig,
+        _cgcx: &CodegenContext<Self>,
+        _tcx: TyCtxt<'_>,
+        _module: &ModuleCodegen<Self::Module>,
+        _diff_fncs: Vec<rustc_ast::expand::autodiff_attrs::AutoDiffItem>,
+        _config: &ModuleConfig,
     ) -> Result<(), FatalError> {
         unimplemented!();
     }
@@ -280,5 +297,5 @@ impl WriteBackendMethods for JavaBytecodeBackend {
 
 #[unsafe(no_mangle)]
 pub fn __rustc_codegen_backend() -> Box<dyn CodegenBackend> {
-    Box::new(JavaBytecodeBackend)
+    Box::new(JavaBytecodeBackend { target_info: None })
 }

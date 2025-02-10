@@ -1,0 +1,3 @@
+#!/bin/bash
+
+RUSTFLAGS="-Zcodegen-backend=../target/release/librustc_codegen_java_bytecode.so" cargo build
