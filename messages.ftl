@@ -1,1 +1,1 @@
-rustc_codegen_java_bytecode_name = Java Bytecode Codegen
+codegen_java_bytecode_name = Java Bytecode Codegen

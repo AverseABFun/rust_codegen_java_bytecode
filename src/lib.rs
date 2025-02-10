@@ -29,6 +29,9 @@ extern crate rustc_driver;
 rustc_fluent_macro::fluent_messages! { "../messages.ftl" }
 
 use std::any::Any;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::fmt::Debug;
 
 use rustc_codegen_ssa::back::lto::{LtoModuleCodegen, SerializedModule, ThinModule};
 use rustc_codegen_ssa::back::write::{CodegenContext, FatLtoInput, ModuleConfig};
@@ -38,11 +41,11 @@ use rustc_codegen_ssa::{CodegenResults, CompiledModule, ModuleCodegen};
 use rustc_data_structures::fx::FxIndexMap;
 use rustc_errors::{DiagCtxtHandle, FatalError};
 use rustc_metadata::EncodedMetadata;
-use rustc_middle::bug;
 use rustc_middle::dep_graph::{WorkProduct, WorkProductId};
 use rustc_middle::ty::TyCtxt;
 use rustc_session::Session;
 use rustc_session::config::OutputFilenames;
+use rustc_data_structures::sync::IntoDynSyncSend;
 
 use rustc_hir::def_id::LOCAL_CRATE;
 
@@ -70,6 +73,11 @@ pub fn target_cpu(sess: &Session) -> &str {
 
 struct CodegenData {}
 
+#[derive(Debug)]
+pub struct TargetInfo {
+    target_cpu: String
+}
+
 #[derive(Clone)]
 pub struct LockedTargetInfo { // this and impls for it were copied from rustc_codegen_gcc
     info: Arc<Mutex<IntoDynSyncSend<TargetInfo>>>,
@@ -78,16 +86,6 @@ pub struct LockedTargetInfo { // this and impls for it were copied from rustc_co
 impl Debug for LockedTargetInfo {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.info.lock().expect("lock").fmt(formatter)
-    }
-}
-
-impl LockedTargetInfo {
-    fn cpu_supports(&self, feature: &str) -> bool {
-        self.info.lock().expect("lock").cpu_supports(feature)
-    }
-
-    fn supports_target_dependent_type(&self, typ: CType) -> bool {
-        self.info.lock().expect("lock").supports_target_dependent_type(typ)
     }
 }
 
@@ -174,7 +172,7 @@ impl ExtraBackendMethods for JavaBytecodeBackend {
         tcx: TyCtxt<'_>,
         cgu_name: rustc_span::Symbol,
     ) -> (rustc_codegen_ssa::ModuleCodegen<Self::Module>, u64) {
-        base::compile_codegen_unit(tcx, cgu_name, self.target_info.clone())
+        unimplemented!()
     }
 
     fn target_machine_factory(
@@ -183,6 +181,7 @@ impl ExtraBackendMethods for JavaBytecodeBackend {
         opt_level: rustc_session::config::OptLevel,
         target_features: &[String],
     ) -> rustc_codegen_ssa::back::write::TargetMachineFactoryFn<Self> {
+        unimplemented!()
     }
 }
 
